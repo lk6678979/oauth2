@@ -87,7 +87,7 @@ public class OwpUserDetailsService implements UserDetailsService {
 }
 ```
 
-### 1.2. 配置授权服务器
+### 1.2. 一个简单的配置授权服务器
 创建一个自定义类继承自 AuthorizationServerConfigurerAdapter，完成对授权服务器的配置，然后通过 @EnableAuthorizationServer 注解开启授权服务器：
 ```yaml
 package com.owp.oauth2.authrization.config;
@@ -188,3 +188,4 @@ http://localhost:8888/oauth/authorize?client_id=user_one&response_type=code&redi
 拿到这个授权码(code)去交换 access_token  
 认证服务器核对了授权码和重定向URI，确认无误后，向客户端发送访问令牌（access token）和更新令牌（refresh token）
 ![](https://github.com/lk6678979/image/blob/master/oauth2-login-4.jpg)  
+### 这样我们就完成了本地配置文件管理客户端id、秘钥，并使用默认内存存储普通token（UUID）的方式事项了oauth2，但这样明显不能用于生产
