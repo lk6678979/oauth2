@@ -12,6 +12,14 @@ import org.springframework.security.oauth2.config.annotation.builders.InMemoryCl
 import org.springframework.security.oauth2.config.annotation.configurers.ClientDetailsServiceConfigurer;
 import org.springframework.security.oauth2.config.annotation.web.configuration.AuthorizationServerConfigurerAdapter;
 import org.springframework.security.oauth2.config.annotation.web.configuration.EnableAuthorizationServer;
+import org.springframework.security.oauth2.config.annotation.web.configurers.AuthorizationServerEndpointsConfigurer;
+import org.springframework.security.oauth2.config.annotation.web.configurers.AuthorizationServerSecurityConfigurer;
+import org.springframework.security.oauth2.provider.token.TokenEnhancer;
+import org.springframework.security.oauth2.provider.token.TokenEnhancerChain;
+import org.springframework.security.oauth2.provider.token.store.InMemoryTokenStore;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @Configuration
 @EnableAuthorizationServer
@@ -36,16 +44,16 @@ public class OAuth2AuthorizationServerConfig extends AuthorizationServerConfigur
      */
     @Autowired
     private UserDetailsService userDetailsService;
-
+//
 //    @Autowired
 //    private TokenStore tokenStore;
-
+//
 //    @Autowired(required = false)
 //    private JwtAccessTokenConverter jwtAccessTokenConverter;
 //
 //    @Autowired(required = false)
 //    private TokenEnhancer jwtTokenEnhancer;
-//
+
     /**
      * 在com.owp.oauth2.authrization.security.SecurityConfig中申明bean
      */
@@ -67,5 +75,34 @@ public class OAuth2AuthorizationServerConfig extends AuthorizationServerConfigur
                         .scopes("all");
             }
         }
+    }
+//    @Override
+//    public void configure(AuthorizationServerEndpointsConfigurer endpoints) throws Exception {
+//        endpoints.tokenStore(new InMemoryTokenStore())
+//                .authenticationManager(authenticationManager)
+//                .userDetailsService(userDetailsService);
+//        //扩展token返回结果
+////        if (jwtAccessTokenConverter != null && jwtTokenEnhancer != null) {
+////            TokenEnhancerChain tokenEnhancerChain = new TokenEnhancerChain();
+////            List<TokenEnhancer> enhancerList = new ArrayList();
+////            enhancerList.add(jwtTokenEnhancer);
+////            enhancerList.add(jwtAccessTokenConverter);
+////            tokenEnhancerChain.setTokenEnhancers(enhancerList);
+////            //jwt
+////            endpoints.tokenEnhancer(tokenEnhancerChain)
+////                    .accessTokenConverter(jwtAccessTokenConverter);
+////        }
+//    }
+
+    /**
+     * 指定密码编码格式，不设置会导致调用/oauth/token接口获取token报错401
+     * @param security
+     * @throws Exception
+     */
+    @Override
+    public void configure(AuthorizationServerSecurityConfigurer security) throws Exception {
+//        super.configure(security);
+        // 认证服务器安全配置
+        security.passwordEncoder(passwordEncoder).allowFormAuthenticationForClients();
     }
 }

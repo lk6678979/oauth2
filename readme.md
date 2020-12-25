@@ -11,7 +11,7 @@ OAuth 协议的授权模式共分为 4 种，分别说明如下：
 * 密码模式(password)：密码模式是用户把用户名密码直接告诉客户端，客户端使用这些信息向授权服务器中请令牌。这需要用户对客户端高度信任，例如客户端应用和服务提供商是同一家公司。
 * 客户端模式：客户端模式是指客户端使用自己的名义而不是用户的名义向服务提供者申请授权。严格来说，客户端模式并不能算作 OAuth 协议要解决的问题的一种解决方案，但是，对于开发者而言，在一些前后端分离应用或者为移动端提供的认证授权服务器上使用这种模式还是非常方便的。
 
-## 1. 配置授权服务器
+## 1. 授权服务器
 ### 1.1. 编写SecurityConfig配置类
 * 继承WebSecurityConfigurerAdapter
 * 申明AuthenticationManager
@@ -151,6 +151,18 @@ public class OAuth2AuthorizationServerConfig extends AuthorizationServerConfigur
             }
         }
     }
+    
+    /**
+     * 指定密码编码格式，不设置会导致调用/oauth/token接口获取token报错401
+     * @param security
+     * @throws Exception
+     */
+    @Override
+    public void configure(AuthorizationServerSecurityConfigurer security) throws Exception {
+//        super.configure(security);
+        // 认证服务器安全配置
+        security.passwordEncoder(passwordEncoder).allowFormAuthenticationForClients();
+    }
 }
 ```
 配置OAuth2Properties对象对应的客户端配置，OAuth2Properties对象请见源码
@@ -165,3 +177,14 @@ owp:
         clientId: user_two
         clientSecret:  user_two_secret
 ```
+在浏览器测试：
+http://localhost:8888/oauth/authorize?client_id=user_one&response_type=code&redirect_uri=https://www.baidu.com
+进入用户登录界面
+![](https://github.com/lk6678979/image/blob/master/oauth2-login-1.jpg)  
+登录后显示是否授权
+![](https://github.com/lk6678979/image/blob/master/oauth2-login-2.jpg)  
+选择授权跳转到回调url，url后面有code
+![](https://github.com/lk6678979/image/blob/master/oauth2-login-3.jpg)  
+拿到这个授权码(code)去交换 access_token  
+认证服务器核对了授权码和重定向URI，确认无误后，向客户端发送访问令牌（access token）和更新令牌（refresh token）
+![](https://github.com/lk6678979/image/blob/master/oauth2-login-4.jpg)  
