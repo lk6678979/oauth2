@@ -1,0 +1,27 @@
+server:
+  port: 8888
+spring:
+  redis:
+    host: 47.96.127.51
+    port: 6379
+    password: adminadmin
+    jedis:
+      pool:
+        max-active: 8
+        max-wait: -1s
+        min-idle: 0
+        max-idle: 8
+logging:
+  level:
+    org.springframework: info
+owp:
+  security:
+    oauth2:
+      storeType: redis #或者jwt
+      jwtSigningKey: owpSigningKey
+      clients[0]:
+        clientId: user_one
+        clientSecret: user_one_secret
+      clients[1]:
+        clientId: user_two
+        clientSecret:  user_two_secret
