@@ -86,33 +86,69 @@ public class OwpUserDetailsService implements UserDetailsService {
     }
 }
 ```
+### 1.3. 编写客户端详细信息服务类
+```yaml
+package com.owp.oauth2.authrization.config;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.provider.ClientDetails;
+import org.springframework.security.oauth2.provider.ClientDetailsService;
+import org.springframework.security.oauth2.provider.ClientRegistrationException;
+import org.springframework.security.oauth2.provider.client.BaseClientDetails;
+import org.springframework.stereotype.Component;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+@Component
+public class OwpClientDetailsService implements ClientDetailsService {
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    @Override
+    public ClientDetails loadClientByClientId(String s) throws ClientRegistrationException {
+        //TODO 这样可以自行实现加载方式，例如从数据库中读取
+        BaseClientDetails baseClientDetails = new BaseClientDetails();
+        baseClientDetails.setClientId("user_one");
+        baseClientDetails.setClientSecret(passwordEncoder.encode("user_one_secret"));
+        List<String> scopes = new ArrayList<>();
+        scopes.add("all");
+        baseClientDetails.setScope(scopes);
+        baseClientDetails.setRefreshTokenValiditySeconds(7200);
+        List<String> grantTypes = new ArrayList<>();
+        grantTypes.add("authorization_code");
+        baseClientDetails.setAuthorizedGrantTypes(grantTypes);
+        Set<String> redirectUri = new HashSet<>();
+        redirectUri.add("https://www.baidu.com");
+        baseClientDetails.setRegisteredRedirectUri(redirectUri);
+        return baseClientDetails;
+    }
+}
+```
 
 ### 1.2. 一个简单的配置授权服务器
 创建一个自定义类继承自 AuthorizationServerConfigurerAdapter，完成对授权服务器的配置，然后通过 @EnableAuthorizationServer 注解开启授权服务器：
 ```yaml
 package com.owp.oauth2.authrization.config;
 
-import com.owp.oauth2.authrization.properties.OAuth2ClientProperties;
-import com.owp.oauth2.authrization.properties.OAuth2Properties;
-import org.apache.commons.lang.ArrayUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.oauth2.config.annotation.builders.InMemoryClientDetailsServiceBuilder;
 import org.springframework.security.oauth2.config.annotation.configurers.ClientDetailsServiceConfigurer;
 import org.springframework.security.oauth2.config.annotation.web.configuration.AuthorizationServerConfigurerAdapter;
 import org.springframework.security.oauth2.config.annotation.web.configuration.EnableAuthorizationServer;
+import org.springframework.security.oauth2.config.annotation.web.configurers.AuthorizationServerEndpointsConfigurer;
+import org.springframework.security.oauth2.config.annotation.web.configurers.AuthorizationServerSecurityConfigurer;
+import org.springframework.security.oauth2.provider.token.store.InMemoryTokenStore;
 
 @Configuration
 @EnableAuthorizationServer
 public class OAuth2AuthorizationServerConfig extends AuthorizationServerConfigurerAdapter {
-    /**
-     * 客户端配置对象，读取yml中的client配置
-     */
-    @Autowired
-    private OAuth2Properties oAuth2Properties;
 
     /**
      * 该对象用来支持 password 模式
@@ -130,6 +166,15 @@ public class OAuth2AuthorizationServerConfig extends AuthorizationServerConfigur
     private UserDetailsService userDetailsService;
 
     /**
+     * 注意：这里不能使用接口引用，否则会导致自己引用自己，内存溢出
+     * 解决办法：
+     * 1.直接引用自己创建的类，而非父类
+     * 2.给自己写的类命名一个别名，这里使用别名引用
+     */
+    @Autowired
+    private OwpClientDetailsService clientDetailsService;
+
+    /**
      * 在com.owp.oauth2.authrization.security.SecurityConfig中申明bean
      */
     @Autowired
@@ -137,21 +182,15 @@ public class OAuth2AuthorizationServerConfig extends AuthorizationServerConfigur
 
     @Override
     public void configure(ClientDetailsServiceConfigurer clients) throws Exception {
-        InMemoryClientDetailsServiceBuilder build = clients.inMemory();
-        if (ArrayUtils.isNotEmpty(oAuth2Properties.getClients())) {
-            for (OAuth2ClientProperties config : oAuth2Properties.getClients()) {
-                build.withClient(config.getClientId())
-                        .secret(passwordEncoder.encode(config.getClientSecret()))
-                        .accessTokenValiditySeconds(config.getAccessTokenValiditySeconds())
-                        .refreshTokenValiditySeconds(60 * 60 * 24 * 15)
-                        //.authorizedGrantTypes("refresh_token", "password", "authorization_code")//OAuth2支持的验证模式
-                        .authorizedGrantTypes("authorization_code")//OAuth2支持的验证模式
-                        .redirectUris("https://www.baidu.com")//指定回调URI，客户端提交请求时，必须保持一致
-                        .scopes("all");
-            }
-        }
+        clients.withClientDetails(clientDetailsService);
     }
-    
+    @Override
+    public void configure(AuthorizationServerEndpointsConfigurer endpoints) throws Exception {
+        endpoints.tokenStore(new InMemoryTokenStore())
+                .authenticationManager(authenticationManager)
+                .userDetailsService(userDetailsService);
+    }
+
     /**
      * 指定密码编码格式，不设置会导致调用/oauth/token接口获取token报错401
      * @param security
@@ -165,18 +204,6 @@ public class OAuth2AuthorizationServerConfig extends AuthorizationServerConfigur
     }
 }
 ```
-配置OAuth2Properties对象对应的客户端配置，OAuth2Properties对象请见源码
-```yaml
-owp:
-  security:
-    oauth2:
-      clients[0]:
-        clientId: user_one
-        clientSecret: user_one_secret
-      clients[1]:
-        clientId: user_two
-        clientSecret:  user_two_secret
-```
 在浏览器测试：
 http://localhost:8888/oauth/authorize?client_id=user_one&response_type=code&redirect_uri=https://www.baidu.com
 进入用户登录界面
@@ -188,4 +215,53 @@ http://localhost:8888/oauth/authorize?client_id=user_one&response_type=code&redi
 拿到这个授权码(code)去交换 access_token  
 认证服务器核对了授权码和重定向URI，确认无误后，向客户端发送访问令牌（access token）和更新令牌（refresh token）
 ![](https://github.com/lk6678979/image/blob/master/oauth2-login-4.jpg)  
-### 这样我们就完成了本地配置文件管理客户端id、秘钥，并使用默认内存存储普通token（UUID）的方式事项了oauth2，但这样明显不能用于生产
+### 1.2. 设置TOKEN的存储方式
+在上面的例子中，我们采用内存存储TOKEN，在集群情况下会出现无法获取TOKEN的问题，那么就需要以JVM外部的一个单独空间存储，一般说REDIS和MYSQL
+### 1.2.1 申明REDIS和JDBC两种方式的TokenStore
+```yaml
+    @Autowired
+    private RedisConnectionFactory redisConnectionFactory;
+
+    @Autowired
+    private DataSource dataSource;
+
+    /**
+     * Token存储Redis
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "owp.security.oauth2", name = "storeType", havingValue = "redis")
+    public TokenStore redisTokenStore() {
+        return new RedisTokenStore(redisConnectionFactory);
+    }
+
+    /**
+     * Token存储jdbc
+     * 框架已提前为我们设计好了数据库表，但对于 MYSQL 来说，默认建表语句中主键为 Varchar(256)，
+     * 这超过了最大的主键长度，可改成 128，并用 BLOB 替换语句中的 LONGVARBINARY 类型
+     * 建表语句：
+     * https://github.com/spring-projects/spring-security-oauth/blob/master/spring-security-oauth2/src/test/resources/schema.sql
+     *
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "owp.security.oauth2", name = "storeType", havingValue = "jdbc")
+    public TokenStore jdbcTokenStore() {
+        return new JdbcTokenStore(dataSource);
+    }
+```
+### 1.2.1 配置TokenStore
+```yaml
+    @Autowired
+    private TokenStore tokenStore;
+
+    @Override
+    public void configure(AuthorizationServerEndpointsConfigurer endpoints) throws Exception {
+        endpoints.tokenStore(tokenStore)
+                .authenticationManager(authenticationManager)
+                .userDetailsService(userDetailsService);
+    }
+```
+### 1.2.1 测试
+* 用上面同样的方式去获取TOKEN，REDIS中的存储结构：
+![](https://github.com/lk6678979/image/blob/master/oauth2-login-5.jpg)  
+* 用上面同样的方式去获取TOKEN，MYSQL中的存储结构：
+![](https://github.com/lk6678979/image/blob/master/oauth2-login-6.jpg)  

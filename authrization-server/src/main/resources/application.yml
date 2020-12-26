@@ -2,22 +2,27 @@ server:
   port: 8888
 spring:
   redis:
-    host: 47.96.127.51
+    host: 47.106.135.182
     port: 6379
-    password: adminadmin
+    password: liukai
     jedis:
       pool:
         max-active: 8
         max-wait: -1s
         min-idle: 0
         max-idle: 8
+  datasource:
+    driver-class-name: com.mysql.jdbc.Driver
+    url: jdbc:mysql://47.106.135.182:3306/oauth2?useUnicode=yes&characterEncoding=UTF-8
+    username: root
+    password: liukai
 logging:
   level:
     org.springframework: info
 owp:
   security:
     oauth2:
-      storeType: redis #或者jwt
+      storeType: jdbc #或者jwt
       jwtSigningKey: owpSigningKey
       clients[0]:
         clientId: user_one

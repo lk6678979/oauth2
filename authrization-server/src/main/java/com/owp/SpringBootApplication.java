@@ -1,6 +1,5 @@
 package com.owp;
 
-import com.owp.oauth2.authrization.properties.OAuth2Properties;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,10 +18,6 @@ import org.springframework.web.bind.annotation.RestController;
 public class SpringBootApplication {
 
     protected final Logger log = LoggerFactory.getLogger(this.getClass());
-
-    @Autowired
-    private OAuth2Properties oAuth2Properties;
-
 
     public static void main(String[] args) {
         SpringApplication.run(SpringBootApplication.class, args);
