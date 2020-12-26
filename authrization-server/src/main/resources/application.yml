@@ -22,8 +22,10 @@ logging:
 owp:
   security:
     oauth2:
-      storeType: jdbc #或者jwt
+      storeType: jwt-key #或者jwt
       jwtSigningKey: owpSigningKey
+      jwtSigningJsk: /data/rsa/jdk/keystore.jks
+      jwtSigningJskPwd: 123456
       clients[0]:
         clientId: user_one
         clientSecret: user_one_secret

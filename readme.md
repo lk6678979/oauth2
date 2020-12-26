@@ -204,19 +204,19 @@ public class OAuth2AuthorizationServerConfig extends AuthorizationServerConfigur
     }
 }
 ```
-在浏览器测试：
+* 在浏览器测试：
 http://localhost:8888/oauth/authorize?client_id=user_one&response_type=code&redirect_uri=https://www.baidu.com
-进入用户登录界面
+* 进入用户登录界面
 ![](https://github.com/lk6678979/image/blob/master/oauth2-login-1.jpg)  
-登录后显示是否授权
+* 登录后显示是否授权
 ![](https://github.com/lk6678979/image/blob/master/oauth2-login-2.jpg)  
-选择授权跳转到回调url，url后面有code
+* 选择授权跳转到回调url，url后面有code
 ![](https://github.com/lk6678979/image/blob/master/oauth2-login-3.jpg)  
-拿到这个授权码(code)去交换 access_token  
-认证服务器核对了授权码和重定向URI，确认无误后，向客户端发送访问令牌（access token）和更新令牌（refresh token）
+* 拿到这个授权码(code)去交换 access_token,认证服务器核对了授权码和重定向URI，确认无误后，向客户端发送访问令牌（access token）和更新令牌（refresh token）
 ![](https://github.com/lk6678979/image/blob/master/oauth2-login-4.jpg)  
 ### 1.2. 设置TOKEN的存储方式
-在上面的例子中，我们采用内存存储TOKEN，在集群情况下会出现无法获取TOKEN的问题，那么就需要以JVM外部的一个单独空间存储，一般说REDIS和MYSQL
+* 在上面的例子中，我们采用内存存储TOKEN，在集群情况下会出现无法获取TOKEN的问题，那么就需要以JVM外部的一个单独空间存储，一般说REDIS和MYSQL
+* 在上面的例子中，我们采用内存存储TOKEN，在集群情况下会出现无法获取TOKEN的问题，那么就需要以JVM外部的一个单独空间存储，一般说REDIS和MYSQL
 ### 1.2.1 申明REDIS和JDBC两种方式的TokenStore
 ```yaml
     @Autowired
@@ -258,6 +258,7 @@ http://localhost:8888/oauth/authorize?client_id=user_one&response_type=code&redi
         endpoints.tokenStore(tokenStore)
                 .authenticationManager(authenticationManager)
                 .userDetailsService(userDetailsService);
+                
     }
 ```
 ### 1.2.1 测试
@@ -265,3 +266,150 @@ http://localhost:8888/oauth/authorize?client_id=user_one&response_type=code&redi
 ![](https://github.com/lk6678979/image/blob/master/oauth2-login-5.jpg)  
 * 用上面同样的方式去获取TOKEN，MYSQL中的存储结构：
 ![](https://github.com/lk6678979/image/blob/master/oauth2-login-6.jpg)  
+### 1.3. 使用JWT
+#### 1.3.1  编写JWT拓展类（也可以不用）
+```yaml
+package com.owp.oauth2.authrization.config;
+
+import org.springframework.security.oauth2.common.DefaultOAuth2AccessToken;
+import org.springframework.security.oauth2.common.OAuth2AccessToken;
+import org.springframework.security.oauth2.provider.OAuth2Authentication;
+import org.springframework.security.oauth2.provider.token.TokenEnhancer;
+
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * 自定义拓展JWT，也就是额外写入kv到jwt中
+ */
+public class OwpJwtTokenEnhancer implements TokenEnhancer {
+
+    public OAuth2AccessToken enhance(OAuth2AccessToken accessToken, OAuth2Authentication authentication) {
+        Map<String, Object> info = new HashMap<String, Object>();
+        info.put("organization", authentication.getName() + "_"+System.currentTimeMillis());
+        ((DefaultOAuth2AccessToken) accessToken).setAdditionalInformation(info);
+        return accessToken;
+    }
+}
+```
+#### 1.3.2  编写JWT的TokenStore-对称密钥
+```yaml
+/**
+     * JWT-TOKEN配置信息,使用对称加密
+     */
+    @Configuration
+    @ConditionalOnProperty(prefix = "owp.security.oauth2", name = "storeType", havingValue = "jwt-key", matchIfMissing = true)
+    public static class JwtTokenConfig {
+        @Value("${owp.security.oauth2.jwtSigningKey:owpSigningKey}")
+        private String jwtSigningKey;
+
+        /**
+         * 使用jwtTokenStore存储token
+         *
+         * @return
+         */
+        @Bean
+        public TokenStore jwtTokenStore() {
+            return new JwtTokenStore(jwtAccessTokenConverter());
+        }
+
+        /**
+         * 用于生成jwt
+         *
+         * @return
+         */
+        @Bean
+        public JwtAccessTokenConverter jwtAccessTokenConverter() {
+            JwtAccessTokenConverter accessTokenConverter = new JwtAccessTokenConverter();
+            accessTokenConverter.setSigningKey(jwtSigningKey);//生成签名的key
+            return accessTokenConverter;
+        }
+
+        /**
+         * 用于扩展JWT,自定义令牌声明，添加额外的属性
+         *
+         * @return
+         */
+        @Bean
+        @ConditionalOnMissingBean(name = "jwtTokenEnhancer")
+        public TokenEnhancer jwtTokenEnhancer() {
+            return new OwpJwtTokenEnhancer();
+        }
+    }
+```
+#### 1.3.2  编写JWT的TokenStore-非对称密钥
+```yaml
+/**
+     * JWT-TOKEN配置信息,使用非对称加密
+     */
+    @Configuration
+    @ConditionalOnProperty(prefix = "owp.security.oauth2", name = "storeType", havingValue = "jwt-rsa", matchIfMissing = true)
+    public static class JwtTokenRsaConfig {
+        @Value("${owp.security.oauth2.jwtSigningJsk:/data/rsa/jdk/keystore.jks}")
+        private String jwtSigningJsk;
+
+        @Value("${owp.security.oauth2.jwtSigningJskPwd:123456}")
+        private String jwtSigningJskPwd;
+
+        /**
+         * 使用jwtTokenStore存储token
+         *
+         * @return
+         */
+        @Bean
+        public TokenStore jwtTokenStore() {
+            return new JwtTokenStore(jwtAccessTokenConverter());
+        }
+
+        /**
+         * 用于生成jwt
+         *
+         * @return
+         */
+        @Bean
+        public JwtAccessTokenConverter jwtAccessTokenConverter() {
+            JwtAccessTokenConverter accessTokenConverter = new JwtAccessTokenConverter();
+            KeyStoreKeyFactory keyStoreKeyFactory = new KeyStoreKeyFactory(new ClassPathResource(jwtSigningJsk), jwtSigningJskPwd.toCharArray());
+            accessTokenConverter.setKeyPair(keyStoreKeyFactory.getKeyPair("jwtSigning"));
+            return accessTokenConverter;
+        }
+
+        /**
+         * 用于扩展JWT,自定义令牌声明，添加额外的属性
+         *
+         * @return
+         */
+        @Bean
+        @ConditionalOnMissingBean(name = "jwtTokenEnhancer")
+        public TokenEnhancer jwtTokenEnhancer() {
+            return new OwpJwtTokenEnhancer();
+        }
+    }
+```
+#### 1.3.3  修改配置
+```yaml
+    @Autowired(required = false)
+    private TokenEnhancer jwtTokenEnhancer;
+
+    @Autowired(required = false)
+    private JwtAccessTokenConverter jwtAccessTokenConverter;
+    
+    @Override
+        public void configure(AuthorizationServerEndpointsConfigurer endpoints) throws Exception {
+            endpoints.tokenStore(tokenStore)
+                    .authenticationManager(authenticationManager)
+                    .userDetailsService(userDetailsService);
+            if (jwtAccessTokenConverter != null && jwtTokenEnhancer != null) {
+                TokenEnhancerChain tokenEnhancerChain = new TokenEnhancerChain();
+                List<TokenEnhancer> enhancerList = new ArrayList();
+                enhancerList.add(jwtTokenEnhancer);
+                enhancerList.add(jwtAccessTokenConverter);
+                tokenEnhancerChain.setTokenEnhancers(enhancerList);
+                //jwt
+                endpoints.tokenEnhancer(tokenEnhancerChain)
+                        .accessTokenConverter(jwtAccessTokenConverter);
+            }
+        }
+```
+* 用上面同样的方式去获取JWT：
+![](https://github.com/lk6678979/image/blob/master/oauth2-login-7.jpg)  
