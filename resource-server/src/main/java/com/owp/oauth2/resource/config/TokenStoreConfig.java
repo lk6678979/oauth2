@@ -1,4 +1,4 @@
-package com.owp.oauth2.authrization.config;
+package com.owp.oauth2.resource.config;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -7,7 +7,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.Resource;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.security.oauth2.provider.token.RemoteTokenServices;
 import org.springframework.security.oauth2.provider.token.TokenEnhancer;
 import org.springframework.security.oauth2.provider.token.TokenStore;
 import org.springframework.security.oauth2.provider.token.store.JdbcTokenStore;
@@ -17,6 +19,10 @@ import org.springframework.security.oauth2.provider.token.store.KeyStoreKeyFacto
 import org.springframework.security.oauth2.provider.token.store.redis.RedisTokenStore;
 
 import javax.sql.DataSource;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.util.stream.Collectors;
 
 @Configuration
 public class TokenStoreConfig {
@@ -26,6 +32,13 @@ public class TokenStoreConfig {
 
     @Autowired
     private DataSource dataSource;
+
+    @Value("${owp.security.oauth2.serverUrl:http://127.0.0.1:8888/oauth}")
+    private String serverUrl;
+    @Value("${owp.security.oauth2.clientId}")
+    private String clientId;
+    @Value("${owp.security.oauth2.clientSecret}")
+    private String clientSecret;
 
     /**
      * Token存储Redis
@@ -80,16 +93,6 @@ public class TokenStoreConfig {
             return accessTokenConverter;
         }
 
-        /**
-         * 用于扩展JWT,自定义令牌声明，添加额外的属性
-         *
-         * @return
-         */
-        @Bean
-        @ConditionalOnMissingBean(name = "jwtTokenEnhancer")
-        public TokenEnhancer jwtTokenEnhancer() {
-            return new OwpJwtTokenEnhancer();
-        }
     }
 
     /**
@@ -98,8 +101,8 @@ public class TokenStoreConfig {
     @Configuration
     @ConditionalOnProperty(prefix = "owp.security.oauth2", name = "storeType", havingValue = "jwt-rsa", matchIfMissing = true)
     public static class JwtTokenRsaConfig {
-        @Value("${owp.security.oauth2.jwtSigningJsk:/data/rsa/jdk/keystore.jks}")
-        private String jwtSigningJsk;
+        @Value("${owp.security.oauth2.jwtSigningPublic}")
+        private String jwtSigningPublic;
 
         @Value("${owp.security.oauth2.jwtSigningJskPwd:123456}")
         private String jwtSigningJskPwd;
@@ -122,20 +125,19 @@ public class TokenStoreConfig {
         @Bean
         public JwtAccessTokenConverter jwtAccessTokenConverter() {
             JwtAccessTokenConverter accessTokenConverter = new JwtAccessTokenConverter();
-            KeyStoreKeyFactory keyStoreKeyFactory = new KeyStoreKeyFactory(new ClassPathResource(jwtSigningJsk), jwtSigningJskPwd.toCharArray());
-            accessTokenConverter.setKeyPair(keyStoreKeyFactory.getKeyPair("jwtSigning"));
+            //设置用于解码的非对称加密的公钥
+            accessTokenConverter.setVerifierKey(jwtSigningPublic);
             return accessTokenConverter;
         }
+    }
 
-        /**
-         * 用于扩展JWT,自定义令牌声明，添加额外的属性
-         *
-         * @return
-         */
-        @Bean
-        @ConditionalOnMissingBean(name = "jwtTokenEnhancer")
-        public TokenEnhancer jwtTokenEnhancer() {
-            return new OwpJwtTokenEnhancer();
-        }
+    @Bean
+    public RemoteTokenServices remoteTokenServices() {
+        StringBuilder serverUrlBuilder = new StringBuilder();
+        final RemoteTokenServices tokenServices = new RemoteTokenServices();
+        tokenServices.setCheckTokenEndpointUrl(serverUrlBuilder.append(serverUrl).append("/check_token").toString());
+        tokenServices.setClientId(clientId);
+        tokenServices.setClientSecret(clientSecret);
+        return tokenServices;
     }
 }

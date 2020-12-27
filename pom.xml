@@ -9,6 +9,7 @@
     <version>1.0.0</version>
     <modules>
         <module>authrization-server</module>
+        <module>resource-server</module>
     </modules>
     <packaging>pom</packaging>
 

@@ -413,3 +413,248 @@ public class OwpJwtTokenEnhancer implements TokenEnhancer {
 ```
 * 用上面同样的方式去获取JWT：
 ![](https://github.com/lk6678979/image/blob/master/oauth2-login-7.jpg)  
+#### 我们还可以自定义登录页面、登录成功和登录失败处理方法，具体如何实现请百度
+ResourceServerSecurityConfigurer 可配置属性
+* tokenServices：ResourceServerTokenServices 类的实例，用来实现令牌业务逻辑服务
+* resourceId：这个资源服务的ID，这个属性是可选的，但是推荐设置并在授权服务中进行验证
+* tokenExtractor 令牌提取器用来提取请求中的令牌
+* 请求匹配器，用来设置需要进行保护的资源路径，默认的情况下是受保护资源服务的全部路径
+* 受保护资源的访问规则，默认的规则是简单的身份验证（plain authenticated）
+* 其他的自定义权限保护规则通过 HttpSecurity 来进行配置
+
+## 1.3. 一个简单的资源服务器（本地校验）
+可以选择本地验证token并获取相关信息，也可以远程从授权服务器获取
+#### 1.3.1 添加本地验证token的TokenStore
+这里和授权服务器一样，配置对应的TokenStore机制，代码也基本一样
+```yaml
+package com.owp.oauth2.resource.config;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.Resource;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.security.oauth2.provider.token.TokenEnhancer;
+import org.springframework.security.oauth2.provider.token.TokenStore;
+import org.springframework.security.oauth2.provider.token.store.JdbcTokenStore;
+import org.springframework.security.oauth2.provider.token.store.JwtAccessTokenConverter;
+import org.springframework.security.oauth2.provider.token.store.JwtTokenStore;
+import org.springframework.security.oauth2.provider.token.store.KeyStoreKeyFactory;
+import org.springframework.security.oauth2.provider.token.store.redis.RedisTokenStore;
+
+import javax.sql.DataSource;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.util.stream.Collectors;
+
+@Configuration
+public class TokenStoreConfig {
+
+    @Autowired
+    private RedisConnectionFactory redisConnectionFactory;
+
+    @Autowired
+    private DataSource dataSource;
+
+    /**
+     * Token存储Redis
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "owp.security.oauth2", name = "storeType", havingValue = "redis")
+    public TokenStore redisTokenStore() {
+        return new RedisTokenStore(redisConnectionFactory);
+    }
+
+    /**
+     * Token存储jdbc
+     * 框架已提前为我们设计好了数据库表，但对于 MYSQL 来说，默认建表语句中主键为 Varchar(256)，
+     * 这超过了最大的主键长度，可改成 128，并用 BLOB 替换语句中的 LONGVARBINARY 类型
+     * 建表语句：
+     * https://github.com/spring-projects/spring-security-oauth/blob/master/spring-security-oauth2/src/test/resources/schema.sql
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "owp.security.oauth2", name = "storeType", havingValue = "jdbc")
+    public TokenStore jdbcTokenStore() {
+        return new JdbcTokenStore(dataSource);
+    }
+
+    /**
+     * JWT-TOKEN配置信息,使用对称加密
+     */
+    @Configuration
+    @ConditionalOnProperty(prefix = "owp.security.oauth2", name = "storeType", havingValue = "jwt-key", matchIfMissing = true)
+    public static class JwtTokenConfig {
+        @Value("${owp.security.oauth2.jwtSigningKey:owpSigningKey}")
+        private String jwtSigningKey;
+
+        /**
+         * 使用jwtTokenStore存储token
+         *
+         * @return
+         */
+        @Bean
+        public TokenStore jwtTokenStore() {
+            return new JwtTokenStore(jwtAccessTokenConverter());
+        }
+
+        /**
+         * 用于生成jwt
+         *
+         * @return
+         */
+        @Bean
+        public JwtAccessTokenConverter jwtAccessTokenConverter() {
+            JwtAccessTokenConverter accessTokenConverter = new JwtAccessTokenConverter();
+            accessTokenConverter.setSigningKey(jwtSigningKey);//生成签名的key
+            return accessTokenConverter;
+        }
+
+    }
+
+    /**
+     * JWT-TOKEN配置信息,使用非对称加密
+     */
+    @Configuration
+    @ConditionalOnProperty(prefix = "owp.security.oauth2", name = "storeType", havingValue = "jwt-rsa", matchIfMissing = true)
+    public static class JwtTokenRsaConfig {
+        @Value("${owp.security.oauth2.jwtSigningPublic}")
+        private String jwtSigningPublic;
+
+        @Value("${owp.security.oauth2.jwtSigningJskPwd:123456}")
+        private String jwtSigningJskPwd;
+
+        /**
+         * 使用jwtTokenStore存储token
+         *
+         * @return
+         */
+        @Bean
+        public TokenStore jwtTokenStore() {
+            return new JwtTokenStore(jwtAccessTokenConverter());
+        }
+
+        /**
+         * 用于生成jwt
+         *
+         * @return
+         */
+        @Bean
+        public JwtAccessTokenConverter jwtAccessTokenConverter() {
+            JwtAccessTokenConverter accessTokenConverter = new JwtAccessTokenConverter();
+            //设置用于解码的非对称加密的公钥
+            accessTokenConverter.setVerifierKey(jwtSigningPublic);
+            return accessTokenConverter;
+        }
+    }
+}
+```
+#### 1.3.2 配置资源服务器
+```yaml
+package com.owp.oauth2.resource.config;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.config.annotation.web.configuration.EnableResourceServer;
+import org.springframework.security.oauth2.config.annotation.web.configuration.ResourceServerConfigurerAdapter;
+import org.springframework.security.oauth2.config.annotation.web.configurers.ResourceServerSecurityConfigurer;
+import org.springframework.security.oauth2.provider.token.TokenStore;
+
+@Configuration
+@EnableResourceServer
+public class OwpResourceServerConfiguration extends ResourceServerConfigurerAdapter {
+
+    @Autowired
+    private TokenStore tokenStore;
+
+    @Override
+    public void configure(HttpSecurity http) throws Exception {
+        /*
+    	 注意：
+    	 1、必须先加上： .requestMatchers().antMatchers(...)，表示对资源进行保护，也就是说，在访问前要进行OAuth认证。
+    	 2、接着：访问受保护的资源时，要具有哪里权限。
+    	 ------------------------------------
+    	 否则，请求只是被Security的拦截器拦截，请求根本到不了OAuth2的拦截器。
+    	 同时，还要注意先配置：security.oauth2.resource.filter-order=3，否则通过access_token取不到用户信息。
+    	 ------------------------------------
+    	 requestMatchers()部分说明：
+    	 Invoking requestMatchers() will not override previous invocations of ::
+    	 mvcMatcher(String)}, requestMatchers(), antMatcher(String), regexMatcher(String), and requestMatcher(RequestMatcher).
+    	 */
+        http.sessionManagement().sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
+                .and()
+                //请求权限配置
+                .authorizeRequests()
+                //下边的路径放行,不需要经过认证
+                .antMatchers("/oauth/*", "/auth/user/login").permitAll()
+                //OPTIONS请求不需要鉴权
+                .antMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                //private和protected接口需要保护
+                //在实际使用中，我们可以将一个接口映射为一个scop，然后指定一定的规则，就可以做到限制用户使用的接口了
+                //然后在这边将每一个接口和scop都加进来，当然你也可以用自定义注解更方便的进行接口说scope定义
+                .antMatchers("/private/**", "/protected/**").access("#oauth2.hasScope('all2')")
+                .antMatchers("/private/**", "/protected/**").hasAuthority("ROLE_USER2")
+                //其余接口没有角色限制，但需要经过认证，只要携带token就可以放行
+                .anyRequest()
+                .authenticated();
+    }
+
+    @Override
+    public void configure(ResourceServerSecurityConfigurer resources) throws Exception {
+        resources.tokenStore(tokenStore);
+    }
+}
+```
+#### 1.3.2 在资源服务器中编写一个测试api
+```yaml
+    @GetMapping(value = "private/api")
+    public String success() {
+        return "SUCCESS";
+    }
+```
+* 使用token调用接口
+* 如果token校验没有接口权限：
+![](https://github.com/lk6678979/image/blob/master/oauth2-login-8.jpg)  
+* 有权限则正常返回
+![](https://github.com/lk6678979/image/blob/master/oauth2-login-9.jpg) 
+## 1.4. 一个简单的资源服务器（远程校验）
+也可以远程从授权服务器获取
+#### 1.4.1 添加远程校验Token服务
+```yaml
+    @Value("${owp.security.oauth2.serverUrl:http://127.0.0.1:8888/oauth}")
+    private String serverUrl;
+    @Value("${owp.security.oauth2.clientId}")
+    private String clientId;
+    @Value("${owp.security.oauth2.clientSecret}")
+    private String clientSecret;
+    
+        @Bean
+        public RemoteTokenServices remoteTokenServices() {
+            StringBuilder serverUrlBuilder = new StringBuilder();
+            final RemoteTokenServices tokenServices = new RemoteTokenServices();
+            tokenServices.setCheckTokenEndpointUrl(serverUrlBuilder.append(serverUrl).append("/check_token").toString());
+            tokenServices.setClientId(clientId);
+            tokenServices.setClientSecret(clientSecret);
+            return tokenServices;
+        }
+```
+#### 1.4.1 配置使用远程Token校验代替TokenStore
+```yaml
+    @Value("${owp.security.oauth2.resourceId}")
+    private String resourceId;
+    
+    @Autowired
+    private RemoteTokenServices remoteTokenServices;
+        
+    @Override
+    public void configure(ResourceServerSecurityConfigurer resources) throws Exception {
+        resources.tokenServices(remoteTokenServices).resourceId(resourceId);
+    }
+```

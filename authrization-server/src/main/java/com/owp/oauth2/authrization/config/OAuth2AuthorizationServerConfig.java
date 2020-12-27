@@ -80,7 +80,8 @@ public class OAuth2AuthorizationServerConfig extends AuthorizationServerConfigur
     public void configure(AuthorizationServerEndpointsConfigurer endpoints) throws Exception {
         endpoints.tokenStore(tokenStore)
                 .authenticationManager(authenticationManager)
-                .userDetailsService(userDetailsService);
+                .userDetailsService(userDetailsService)
+        .reuseRefreshTokens(false);
         if (jwtAccessTokenConverter != null && jwtTokenEnhancer != null) {
             TokenEnhancerChain tokenEnhancerChain = new TokenEnhancerChain();
             List<TokenEnhancer> enhancerList = new ArrayList();
@@ -103,6 +104,9 @@ public class OAuth2AuthorizationServerConfig extends AuthorizationServerConfigur
     public void configure(AuthorizationServerSecurityConfigurer security) throws Exception {
 //        super.configure(security);
         // 认证服务器安全配置
-        security.passwordEncoder(passwordEncoder).allowFormAuthenticationForClients();
+        security.passwordEncoder(passwordEncoder).allowFormAuthenticationForClients().realm("OAuth2-Sample")
+                .allowFormAuthenticationForClients()
+                .tokenKeyAccess("permitAll()")
+                .checkTokenAccess("isAuthenticated()");
     }
 }

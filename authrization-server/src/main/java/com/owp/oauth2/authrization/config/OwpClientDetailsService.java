@@ -30,6 +30,7 @@ public class OwpClientDetailsService implements ClientDetailsService {
         baseClientDetails.setRefreshTokenValiditySeconds(7200);
         List<String> grantTypes = new ArrayList<>();
         grantTypes.add("authorization_code");
+        grantTypes.add("refresh_token");//配置了才会返回刷新token
         baseClientDetails.setAuthorizedGrantTypes(grantTypes);
         Set<String> redirectUri = new HashSet<>();
         redirectUri.add("https://www.baidu.com");
